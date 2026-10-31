@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<!-- ALLSTAND TikTok 動画コンポジション（1080x1920）。render.js から window.render(t) を呼んでフレームを書き出す -->
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+1p:wght@500;800&family=Outfit:wght@700;900&display=block" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: #07040f; }
+  body { font-family: "M PLUS 1p", sans-serif; color: #fff; position: relative; }
+  .layer { position: absolute; inset: 0; }
+  #bg { background: radial-gradient(120% 70% at 50% 0%, #3a1170 0%, #12062a 45%, #07040f 75%); }
+  .beam { position: absolute; top: -200px; width: 260px; height: 2600px; transform-origin: 50% 0; filter: blur(40px); }
+  #beamL { left: 80px; background: linear-gradient(#ff3d9acc, transparent 70%); }
+  #beamR { right: 80px; background: linear-gradient(#22d3eeaa, transparent 70%); }
+  #dim { background: #000; }
+
+  #phone { position: absolute; left: 50%; top: 0; width: 600px; height: 1298px; margin-left: -300px;
+    border-radius: 74px; padding: 16px; background: linear-gradient(145deg, #2a2340, #0c0916);
+    box-shadow: 0 0 0 3px #3b3355, 0 40px 120px -20px #ff3d9a88, 0 0 160px -40px #7c5cffaa; transform-origin: 50% 50%; }
+  #screenWrap { position: relative; width: 100%; height: 100%; border-radius: 58px; overflow: hidden; background: #07040f; }
+  #screen { position: absolute; left: 0; top: 0; width: 100%; transform-origin: 50% 0; }
+  #notch { position: absolute; top: 14px; left: 50%; width: 150px; height: 40px; margin-left: -75px; border-radius: 20px; background: #000; z-index: 2; }
+  #tap { position: absolute; width: 90px; height: 90px; margin: -45px 0 0 -45px; border-radius: 50%;
+    border: 6px solid #fff; background: #ffffff40; z-index: 3; }
+
+  .cap { position: absolute; left: 70px; right: 150px; text-align: center; font-weight: 800; line-height: 1.28; letter-spacing: 0.02em; }
+  .cap .ln { display: block; transform-origin: 50% 70%; }
+  .cap .box { display: inline-block; padding: 6px 26px 10px; border-radius: 22px; background: rgba(7, 4, 15, 0.72); }
+  .cap.big { font-size: 92px; }
+  .cap.mid { font-size: 76px; }
+  .cap.sm { font-size: 54px; font-weight: 500; }
+  .t-shadow { text-shadow: 0 4px 0 #000, 0 0 30px rgba(255, 61, 154, 0.55); }
+  .hl { color: #ff4fa6; text-shadow: 0 4px 0 #000, 0 0 34px rgba(255, 61, 154, 0.95); }
+  .hc { color: #4fe3f7; text-shadow: 0 4px 0 #000, 0 0 34px rgba(34, 211, 238, 0.95); }
+
+  .chip { position: absolute; left: 50%; padding: 22px 46px; border-radius: 999px; font-size: 58px; font-weight: 800; white-space: nowrap;
+    background: rgba(255, 255, 255, 0.08); border: 3px solid rgba(255, 255, 255, 0.25); backdrop-filter: blur(6px); }
+
+  #logo { position: absolute; left: 0; right: 0; text-align: center; }
+  #logo .word { font-family: Outfit, sans-serif; font-weight: 900; font-size: 168px; letter-spacing: 0.06em; }
+  .grad { background: linear-gradient(90deg, #ff3d9a, #a77bff 55%, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #logo svg { width: 200px; height: 200px; filter: drop-shadow(0 0 40px #ff3d9a99); }
+
+  #cta { position: absolute; left: 50%; padding: 34px 70px; border-radius: 999px; font-size: 62px; font-weight: 800; white-space: nowrap;
+    background: linear-gradient(90deg, #ff3d9a, #7c5cff); box-shadow: 0 0 60px -6px #ff3d9a; }
+  #note { position: absolute; left: 0; right: 0; text-align: center; font-size: 30px; color: #ffffff99; font-weight: 500; }
+  #counter { position: absolute; left: 0; right: 0; text-align: center; font-family: Outfit, sans-serif; font-weight: 900; font-size: 230px; font-variant-numeric: tabular-nums; }
+  #flash { background: #fff; }
+  #vignette { background: radial-gradient(120% 80% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.75)); }
+</style>
+</head>
+<body>
+  <div id="bg" class="layer"><div id="beamL" class="beam"></div><div id="beamR" class="beam"></div></div>
+  <canvas id="crowd" class="layer" width="1080" height="1920"></canvas>
+  <div id="dim" class="layer"></div>
+  <div id="phone"><div id="screenWrap"><div id="notch"></div><img id="screen" /><div id="tap"></div></div></div>
+  <canvas id="fx" class="layer" width="1080" height="1920"></canvas>
+  <div id="ui" class="layer"></div>
+  <div id="vignette" class="layer"></div>
+  <div id="flash" class="layer"></div>
+
+<script>
+const V = new URLSearchParams(location.search).get("v") || "ad";
+const FRAMES = "./frames"; // record.js + ffmpeg で書き出したアプリ画面の連番 JPG
+const CLIP_LEN = { L1: 240, L2: 225, L3: 226, LP: 210 };
+
+// ------------------------------------------------------------------ helpers
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const easeOut = (k) => 1 - Math.pow(1 - clamp(k), 3);
+const easeInOut = (k) => { k = clamp(k); return k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2; };
+// ぽんっと出るスケール（0→1.1→1）
+const pop = (k) => { k = clamp(k); return k < 0.6 ? lerp(0.5, 1.1, easeOut(k / 0.6)) : lerp(1.1, 1, easeOut((k - 0.6) / 0.4)); };
+const rnd = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const $ = (id) => document.getElementById(id);
+
+const LOGO_SVG = `<svg viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff3d9a"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#140a26"/><path d="M10 44c6-10 10-10 14 0s8 10 12-6 8-16 18 6" fill="none" stroke="url(#g)" stroke-width="6" stroke-linecap="round"/></svg>`;
+
+// ------------------------------------------------------------------ timelines
+// caption: lines（HTML 可）, y, size。phone: clip / 表示位置。crowd: 0=ひとり, 1=満員
+const TIMELINES = {
+  ad: {
+    duration: 15,
+    reveal: 4.4,
+    scenes: [
+      { t0: 0, t1: 2.2, crowd: 0, captions: [{ y: 560, size: "big", lines: ["配信ライブ、", "<span class='hc'>ひとりで</span>観てて", "さみしくない？"] }] },
+      { t0: 2.2, t1: 4.4, crowd: 0, chips: ["😢 遠くて行けない", "🎫 チケット外れた", "😰 人混みが不安"],
+        captions: [{ y: 1180, size: "mid", delay: 1.15, lines: ["それでも<span class='hl'>一体感</span>は", "ほしい。"] }] },
+      { t0: 4.4, t1: 5.5, crowd: 1, logo: { y: 640 }, captions: [{ y: 1020, size: "mid", delay: 0.15, lines: ["なら"] }] },
+      { t0: 5.5, t1: 8.3, crowd: 1, phone: { clip: "L1", from: 0.4, y: 520, scale: 1, taps: [[0.25, 0.94, 0.3], [0.5, 0.94, 1.2], [0.08, 0.94, 2.0]] }, emojis: true,
+        captions: [{ y: 170, size: "big", lines: ["みんなの<span class='hl'>歓声</span>が", "とどく🔥"] }] },
+      { t0: 8.3, t1: 10.6, crowd: 1, phone: { clip: "L2", from: 0.6, y: 520, scale: 1, rot: -2, taps: [[0.62, 0.54, 0.4], [0.88, 0.54, 1.3]] },
+        captions: [{ y: 170, size: "big", lines: ["推し色<span class='hl'>サイリウム</span>で", "会場を染める"] }] },
+      { t0: 10.6, t1: 12.6, crowd: 1, phone: { clip: "L3", from: 1.0, y: 520, scale: 1, rot: 2, taps: [[0.08, 0.94, 0.3]] }, emojis: true,
+        captions: [{ y: 170, size: "big", lines: ["同じ瞬間に、", "<span class='hc'>いっしょに跳ぶ</span>"] }] },
+      { t0: 12.6, t1: 15, crowd: 1, end: { cta: "無料で参加する ▶" } },
+    ],
+  },
+  post: {
+    duration: 24,
+    reveal: 6.4,
+    scenes: [
+      { t0: 0, t1: 3.2, crowd: 0, captions: [{ y: 470, size: "big", lines: ["POV：", "推しのツアーファイナル", "<span class='hc'>今回は家から</span>"] }] },
+      { t0: 3.2, t1: 5.4, crowd: 0, captions: [{ y: 560, size: "mid", lines: ["でも、ひとりで観る配信って", "ちょっとさみしい…"] }] },
+      { t0: 5.4, t1: 6.4, crowd: 0, captions: [{ y: 760, size: "big", lines: ["そこで"] }] },
+      { t0: 6.4, t1: 7.6, crowd: 1, logo: { y: 640 }, captions: [{ y: 1020, size: "mid", delay: 0.2, lines: ["使ってみた"] }] },
+      { t0: 7.6, t1: 11.2, crowd: 1, phone: { clip: "L1", from: 0.2, y: 560, scale: 1, taps: [[0.25, 0.94, 0.4], [0.5, 0.94, 1.4], [0.08, 0.94, 2.4]] }, emojis: true,
+        captions: [{ y: 170, size: "mid", lines: ["タップで<span class='hl'>歓声</span>を送ると", "全国の熱がステージに"] }] },
+      { t0: 11.2, t1: 14.4, crowd: 1, phone: { clip: "L2", from: 0.6, y: 560, scale: 1, rot: -2, taps: [[0.62, 0.54, 0.4], [0.88, 0.54, 1.5]] },
+        captions: [{ y: 170, size: "mid", lines: ["サイリウムは", "<span class='hl'>推し色</span>に光らせて"] }] },
+      { t0: 14.4, t1: 17.6, crowd: 1, phone: { clip: "L3", from: 0.6, y: 560, scale: 1, rot: 2, taps: [[0.08, 0.94, 0.4]] }, emojis: true,
+        captions: [{ y: 170, size: "mid", lines: ["観客席のみんなと", "<span class='hc'>いっしょに跳ぶ</span>"] }] },
+      { t0: 17.6, t1: 20.4, crowd: 1, counter: { to: 12840, y: 560 }, captions: [{ y: 870, size: "mid", delay: 0.6, lines: ["人と、", "<span class='hl'>同じ会場</span>にいた。"] }] },
+      { t0: 20.4, t1: 24, crowd: 1, end: { cta: "プロフのリンクから無料登録" } },
+    ],
+  },
+};
+const TL = TIMELINES[V];
+window.DURATION = TL.duration;
+
+// ------------------------------------------------------------------ build DOM
+const ui = $("ui");
+for (const s of TL.scenes) {
+  s.els = [];
+  for (const c of s.captions || []) {
+    const el = document.createElement("div");
+    el.className = `cap ${c.size} t-shadow`;
+    el.style.top = c.y + "px";
+    el.innerHTML = c.lines.map((l) => `<span class="ln"><span class="box">${l}</span></span>`).join("");
+    ui.appendChild(el);
+    s.els.push({ el, delay: c.delay || 0, kind: "cap" });
+  }
+  (s.chips || []).forEach((txt, i) => {
+    const el = document.createElement("div");
+    el.className = "chip";
+    el.textContent = txt;
+    el.style.top = 520 + i * 180 + "px";
+    ui.appendChild(el);
+    s.els.push({ el, delay: i * 0.35, kind: "chip", i });
+  });
+  if (s.logo) {
+    const el = document.createElement("div");
+    el.id = "logo";
+    el.style.top = s.logo.y - 260 + "px";
+    el.innerHTML = `${LOGO_SVG}<div class="word">ALL<span class="grad">STAND</span></div>`;
+    ui.appendChild(el);
+    s.els.push({ el, delay: 0, kind: "logo" });
+  }
+  if (s.counter) {
+    const el = document.createElement("div");
+    el.id = "counter";
+    el.className = "grad";
+    el.style.top = s.counter.y + "px";
+    ui.appendChild(el);
+    s.els.push({ el, delay: 0, kind: "counter" });
+  }
+  if (s.end) {
+    const wrap = document.createElement("div");
+    wrap.className = "layer";
+    wrap.innerHTML = `
+      <div id="logo" style="top:300px">${LOGO_SVG}<div class="word">ALL<span class="grad">STAND</span></div></div>
+      <div class="cap big t-shadow" style="top:840px"><span class="ln"><span class="box">離れていても、</span></span><span class="ln"><span class="box"><span class="hl">同じ会場</span>にいる。</span></span></div>
+      <div id="cta" style="top:1160px">${s.end.cta}</div>
+      <div id="note" style="top:1320px">オンラインライブ参加型サービス｜画面は開発中のものです</div>`;
+    ui.appendChild(wrap);
+    s.els.push({ el: wrap, delay: 0, kind: "end" });
+  }
+}
+
+// ------------------------------------------------------------------ crowd + fx canvas
+const COLORS = ["#ff3d9a", "#7c5cff", "#22d3ee", "#a3e635", "#fbbf24", "#ffffff"];
+function drawCrowd(t, full, heat) {
+  const ctx = $("crowd").getContext("2d");
+  ctx.clearRect(0, 0, 1080, 1920);
+  const rows = [
+    { n: 9, y: 1690, s: 0.8, a: 0.75 },
+    { n: 7, y: 1810, s: 1.05, a: 1 },
+  ];
+  rows.forEach((row, ri) => {
+    for (let i = 0; i < row.n; i++) {
+      const idx = ri * 20 + i;
+      const isMe = ri === 1 && i === 3;
+      // ひとりのシーンでは中央の「自分」だけ。満員になるとフェードイン
+      const vis = isMe ? 1 : full;
+      if (vis <= 0.01) continue;
+      const x = (1080 / row.n) * (i + 0.5) + (ri ? 0 : 30);
+      const bounce = Math.max(0, Math.sin(t * Math.PI * 2 * (128 / 60) / 2 + rnd(idx) * 6)) * 26 * heat * row.s;
+      const y = row.y - bounce;
+      const col = full < 0.5 && isMe ? "#22d3ee" : COLORS[idx % COLORS.length];
+      const sway = Math.sin(t * 4.2 * (0.5 + heat) + rnd(idx + 9) * 6) * 0.42 * (0.3 + heat);
+      ctx.globalAlpha = vis * row.a;
+      // penlight
+      ctx.save();
+      ctx.translate(x + 46 * row.s, y - 120 * row.s);
+      ctx.rotate(sway);
+      ctx.shadowColor = col; ctx.shadowBlur = 40;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.roundRect(-9 * row.s, -150 * row.s, 18 * row.s, 150 * row.s, 9 * row.s); ctx.fill();
+      ctx.shadowBlur = 0; ctx.fillStyle = "#3f3f46";
+      ctx.fillRect(-10 * row.s, 0, 20 * row.s, 34 * row.s);
+      ctx.restore();
+      // silhouette
+      ctx.fillStyle = "#020104";
+      ctx.beginPath(); ctx.arc(x, y - 70 * row.s, 46 * row.s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x - 80 * row.s, y - 20 * row.s, 160 * row.s, 300, [80 * row.s, 80 * row.s, 0, 0]); ctx.fill();
+    }
+  });
+  ctx.globalAlpha = 1;
+  const g = ctx.createLinearGradient(0, 1700, 0, 1920);
+  g.addColorStop(0, "rgba(7,4,15,0)"); g.addColorStop(1, "rgba(7,4,15,0.9)");
+  ctx.fillStyle = g; ctx.fillRect(0, 1700, 1080, 220);
+}
+
+const EMOJI = ["🔥", "👏", "💖", "📣", "⚡", "🙌"];
+function drawFx(t, scene, revealK) {
+  const ctx = $("fx").getContext("2d");
+  ctx.clearRect(0, 0, 1080, 1920);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  // 立ち上がりのバースト
+  if (revealK > 0 && revealK < 1.6) {
+    for (let i = 0; i < 46; i++) {
+      const a = rnd(i) * Math.PI * 2, sp = 500 + rnd(i + 50) * 900, k = revealK;
+      const x = 540 + Math.cos(a) * sp * easeOut(k / 1.2), y = 900 + Math.sin(a) * sp * easeOut(k / 1.2) + 300 * k * k;
+      ctx.globalAlpha = clamp(1.4 - k);
+      ctx.font = `${60 + rnd(i + 3) * 60}px "Noto Color Emoji"`;
+      ctx.fillText(EMOJI[i % EMOJI.length], x, y);
+    }
+  }
+  // スマホから湧き上がるリアクション
+  if (scene && scene.emojis) {
+    const lt = t - scene.t0;
+    for (let i = 0; i < 60; i++) {
+      const born = i * 0.09;
+      const k = (lt - born) / 2.2;
+      if (k < 0 || k > 1) continue;
+      const side = i % 2 ? 1 : -1;
+      const x = 540 + side * (250 + rnd(i) * 160) + Math.sin(k * 6 + i) * 30;
+      const y = 1500 - k * 1050;
+      ctx.globalAlpha = clamp(k * 6) * clamp((1 - k) * 3);
+      ctx.font = `${70 + rnd(i + 7) * 40}px "Noto Color Emoji"`;
+      ctx.fillText(EMOJI[i % EMOJI.length], x, y);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ------------------------------------------------------------------ render
+let lastSrc = "";
+window.render = async function (t) {
+  const scene = TL.scenes.find((s) => t >= s.t0 && t < s.t1) || TL.scenes[TL.scenes.length - 1];
+  const rk = t - TL.reveal; // 立ち上がりからの経過
+  const full = clamp(rk / 0.25);
+  const beat = (t * 128) / 60;
+  const pulse = rk > 0 ? Math.pow(1 - (beat % 1), 3) : 0; // キックに合わせた脈動
+
+  // 背景
+  $("dim").style.opacity = rk < 0 ? 0.55 : clamp(0.55 - rk * 2, 0, 0.55) * 0;
+  $("beamL").style.transform = `rotate(${Math.sin(t * 1.1) * 22}deg)`;
+  $("beamR").style.transform = `rotate(${-Math.sin(t * 1.1 + 1) * 22}deg)`;
+  $("beamL").style.opacity = $("beamR").style.opacity = rk < 0 ? 0.12 : 0.6 + pulse * 0.4;
+  $("bg").style.filter = rk < 0 ? "saturate(0.25) brightness(0.55)" : `brightness(${1 + pulse * 0.15})`;
+  drawCrowd(t, full, rk < 0 ? 0.05 : 0.6 + pulse * 0.4);
+  $("flash").style.opacity = rk >= 0 && rk < 0.5 ? (1 - rk / 0.5) * 0.9 : 0;
+
+  // スマホ
+  const phone = $("phone");
+  const ph = scene.phone;
+  if (ph) {
+    const lt = t - scene.t0;
+    const first = !TL.scenes[TL.scenes.indexOf(scene) - 1]?.phone;
+    const enter = first ? easeOut(lt / 0.45) : 1;
+    const whip = first ? 0 : Math.max(0, 1 - lt / 0.25);
+    const y = ph.y + (1 - enter) * 1400;
+    const s = (ph.scale + lt * 0.025) * (1 + pulse * 0.012) * (1 - whip * 0.08);
+    phone.style.display = "block";
+    phone.style.transform = `translateY(${y}px) rotate(${(ph.rot || 0) * enter}deg) scale(${s})`;
+    phone.style.top = "0px";
+    const n = Math.min(CLIP_LEN[ph.clip], 1 + Math.floor((ph.from + lt) * 30));
+    const src = `${FRAMES}/${ph.clip}/${String(n).padStart(4, "0")}.jpg`;
+    const img = $("screen");
+    if (src !== lastSrc) { img.src = src; lastSrc = src; await img.decode().catch(() => {}); }
+    // タップの指アイコン
+    const tap = $("tap");
+    const active = (ph.taps || []).find(([, , at]) => lt >= at && lt < at + 0.5);
+    if (active) {
+      const k = (lt - active[2]) / 0.5;
+      tap.style.display = "block";
+      tap.style.left = active[0] * 100 + "%";
+      tap.style.top = active[1] * 100 + "%";
+      tap.style.opacity = 1 - k;
+      tap.style.transform = `scale(${0.6 + k * 0.8})`;
+    } else tap.style.display = "none";
+  } else phone.style.display = "none";
+
+  // テキスト類
+  for (const s of TL.scenes) {
+    for (const e of s.els) {
+      const on = t >= s.t0 + e.delay && t < s.t1;
+      e.el.style.display = on ? "" : "none";
+      if (!on) continue;
+      const lt = t - s.t0 - e.delay;
+      const out = clamp((s.t1 - t) / 0.12);
+      if (e.kind === "cap") {
+        [...e.el.querySelectorAll(".ln")].forEach((ln, i) => {
+          const k = (lt - i * 0.12) / 0.3;
+          ln.style.opacity = clamp(k * 3) * out;
+          ln.style.transform = `scale(${pop(k)})`;
+        });
+      } else if (e.kind === "chip") {
+        const k = lt / 0.3;
+        const shake = Math.sin(lt * 40) * Math.max(0, 1 - lt / 0.3) * 8;
+        e.el.style.opacity = clamp(k * 3) * out;
+        e.el.style.transform = `translateX(calc(-50% + ${shake + (e.i - 1) * 40}px)) scale(${pop(k)}) rotate(${(e.i - 1) * -3}deg)`;
+        // 最後のテロップが出たらチップは後ろに下がる
+        if (lt > 1.15 - e.delay) e.el.style.opacity = 0.35 * out;
+      } else if (e.kind === "logo") {
+        const k = lt / 0.45;
+        e.el.style.opacity = clamp(k * 4) * out;
+        e.el.style.transform = `scale(${pop(k) * (1 + pulse * 0.04)})`;
+      } else if (e.kind === "counter") {
+        const k = easeOut(lt / 1.6);
+        e.el.textContent = Math.round(s.counter.to * k).toLocaleString("en-US");
+        e.el.style.opacity = clamp(lt * 5) * out;
+        e.el.style.transform = `scale(${1 + pulse * 0.03})`;
+      } else if (e.kind === "end") {
+        const [logo, cap, cta, note] = e.el.children;
+        const k1 = lt / 0.45, k3 = (lt - 0.5) / 0.4;
+        logo.style.opacity = clamp(k1 * 4);
+        logo.style.transform = `scale(${pop(k1)})`;
+        [...cap.querySelectorAll(".ln")].forEach((ln, i) => {
+          const k = (lt - 0.25 - i * 0.12) / 0.3;
+          ln.style.opacity = clamp(k * 3);
+          ln.style.transform = `scale(${pop(k)})`;
+        });
+        cta.style.opacity = clamp(k3 * 3);
+        cta.style.transform = `translateX(-50%) scale(${pop(k3) * (1 + Math.sin(lt * 7) * 0.035)})`;
+        note.style.opacity = clamp((lt - 0.8) * 3);
+      }
+    }
+  }
+
+  drawFx(t, scene, rk);
+};
+</script>
+</body>
+</html>
